@@ -57,6 +57,8 @@ class Settings:
     starting_balance: float = field(default_factory=lambda: _float("PAPER_STARTING_BALANCE", 12.0))
     data_source: str = field(default_factory=lambda: os.getenv("DATA_SOURCE", "delta").strip().lower())
     delta_base_url: str = field(default_factory=lambda: os.getenv("DELTA_BASE_URL", "https://api.india.delta.exchange").strip())
+    delta_api_key: str = field(default_factory=lambda: os.getenv("DELTA_API_KEY", "").strip())
+    delta_api_secret: str = field(default_factory=lambda: os.getenv("DELTA_API_SECRET", "").strip(), repr=False)
     delta_symbol_btc: str = field(default_factory=lambda: os.getenv("DELTA_SYMBOL_BTC", "BTCUSD").strip())
     delta_symbol_gold: str = field(default_factory=lambda: os.getenv("DELTA_SYMBOL_GOLD", "XAUTUSD").strip())
     db_path: str = field(default_factory=lambda: os.getenv("DB_PATH", str(ROOT_DIR / "backend" / "quantpilot.db")))

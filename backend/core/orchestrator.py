@@ -52,7 +52,12 @@ class Services:
         self.params = StrategyParams(**(self.db.kv_get("params", {}) or {}))
         self.guardian_state = GuardianState()
         self.state = RuntimeState(data_source=settings.data_source if not settings.demo_mode else "demo")
-        self.delta = DeltaClient(base_url=settings.delta_base_url, symbol_map={"BTCUSD": settings.delta_symbol_btc, "XAUUSD": settings.delta_symbol_gold})
+        self.delta = DeltaClient(
+            base_url=settings.delta_base_url,
+            api_key=settings.delta_api_key,
+            api_secret=settings.delta_api_secret,
+            symbol_map={"BTCUSD": settings.delta_symbol_btc, "XAUUSD": settings.delta_symbol_gold},
+        )
         self.feed = DemoFeed(INSTRUMENTS)
         self.paper = PaperEngine(settings.starting_balance, spec_provider=lambda inst: self.delta.spec(inst) if self.state.data_source == "delta" else SPECS[inst])
         self.mt5 = MT5Bridge(self.db, login=settings.mt5_login, password=settings.mt5_password, server=settings.mt5_server,

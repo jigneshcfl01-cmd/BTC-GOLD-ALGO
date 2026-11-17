@@ -5,6 +5,9 @@ Used for live real-time market data in Paper Trading mode.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
 import time
 from typing import Any, Optional
@@ -36,11 +39,15 @@ class DeltaClient:
         self,
         base_url: str = "https://api.india.delta.exchange",
         fallback_url: str = "https://api.delta.exchange",
+        api_key: str = "",
+        api_secret: str = "",
         symbol_map: Optional[dict[str, str]] = None,
         timeout: float = 6.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.fallback_url = fallback_url.rstrip("/")
+        self.api_key = api_key.strip()
+        self.api_secret = api_secret.strip()
         self.symbol_map = dict(symbol_map or DEFAULT_SYMBOL_MAP)
         self.timeout = timeout
         self.connected = False
@@ -48,6 +55,19 @@ class DeltaClient:
         self._cached_candles: dict[str, list[dict]] = {}
         self._last_candle_fetch: dict[str, float] = {}
         self._client: Optional[httpx.Client] = None
+
+    def _auth_headers(self, method: str, path: str, payload_str: str = "") -> dict[str, str]:
+        if not self.api_key or not self.api_secret:
+            return {}
+        ts = str(int(time.time()))
+        message = method.upper() + ts + path + payload_str
+        sig = hmac.new(self.api_secret.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+        return {
+            "api-key": self.api_key,
+            "signature": sig,
+            "timestamp": ts,
+            "Content-Type": "application/json",
+        }
 
     def _get_client(self) -> httpx.Client:
         if self._client is None or self._client.is_closed:
@@ -93,11 +113,46 @@ class DeltaClient:
         self.last_health = {
             "connected": ok,
             "base_url": self.base_url,
+            "account_connected": bool(self.api_key and self.api_secret),
             "ping_ms": latency if ok else 0.0,
             "symbols": self.symbol_map,
             "checked_at": int(time.time()),
         }
         return self.last_health
+
+    def get_wallet_balances(self) -> list[dict]:
+        """Fetch real account asset balances from Delta Exchange (requires API Key & Secret)."""
+        if not self.api_key or not self.api_secret:
+            return []
+        path = "/v2/wallet/balances"
+        client = self._get_client()
+        headers = self._auth_headers("GET", path)
+        for base in [self.base_url, self.fallback_url]:
+            try:
+                resp = client.get(f"{base}{path}", headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data.get("result", [])
+            except Exception as exc:
+                log.debug("Delta balance request to %s failed: %s", base, exc)
+        return []
+
+    def get_positions(self) -> list[dict]:
+        """Fetch open perpetual positions from Delta Exchange."""
+        if not self.api_key or not self.api_secret:
+            return []
+        path = "/v2/positions"
+        client = self._get_client()
+        headers = self._auth_headers("GET", path)
+        for base in [self.base_url, self.fallback_url]:
+            try:
+                resp = client.get(f"{base}{path}", headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data.get("result", [])
+            except Exception as exc:
+                log.debug("Delta positions request failed: %s", exc)
+        return []
 
     def symbol_snapshot(self, instrument: str) -> dict:
         """Fetch real-time mark price, best bid/ask, and spread points."""
