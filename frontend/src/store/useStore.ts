@@ -79,7 +79,7 @@ const emptyAgents = () =>
 let toastId = 1;
 
 export const useStore = create<State>((set, get) => ({
-  introDone: false,
+  introDone: true,
   view: "constellation",
   beginner: persisted("qp_beginner", true),
   sound: persisted("qp_sound", false),
