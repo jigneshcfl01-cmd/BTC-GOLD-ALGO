@@ -20,7 +20,9 @@ class GuardianAgent(Agent):
         plan = decision.trade_plan
         hour = datetime.fromtimestamp(setup.confirm_time, tz=timezone.utc).hour
         spec = SPECS[ctx.instrument]
-        if svc.state.data_source == "mt5" and svc.mt5.connected:
+        if svc.state.data_source == "delta":
+            spec = svc.delta.spec(ctx.instrument)
+        elif svc.state.data_source == "mt5" and svc.mt5.connected:
             snap = svc.mt5.symbol_snapshot(ctx.instrument)
             if snap:
                 spec = spec.__class__(**{**spec.__dict__, "volume_min": snap["volume_min"], "volume_step": snap["volume_step"],

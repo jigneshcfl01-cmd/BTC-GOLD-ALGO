@@ -111,6 +111,10 @@ def lot_size(
         loss_per_lot = dist * spec.contract_size
     raw = risk_amount / loss_per_lot
     vol = normalize_volume(raw, spec.volume_min, spec.volume_step, spec.volume_max)
+    if vol == 0.0 and raw >= 0.4:
+        min_risk = spec.volume_min * loss_per_lot
+        if min_risk <= max(risk_amount * 2.5, equity * 0.05):
+            vol = spec.volume_min
     return vol, round(vol * loss_per_lot, 2)
 
 

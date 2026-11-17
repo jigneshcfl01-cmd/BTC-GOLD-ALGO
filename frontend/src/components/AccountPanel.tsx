@@ -81,8 +81,8 @@ export function AccountPanel() {
         <div className="mt-3 grid grid-cols-3 gap-2">
           {[
             { k: "Win rate", v: `${kpis.win_rate.toFixed(1)}%`, sub: `${kpis.trades} trades` },
-            { k: "Open risk", v: usd(kpis.open_risk, 0), sub: `${kpis.open_risk_pct.toFixed(2)}%` },
-            { k: "Balance", v: usd(kpis.balance, 0), sub: execution === "mt5" ? "MT5" : "paper" },
+            { k: "Open risk", v: usd(kpis.open_risk, kpis.open_risk < 10 ? 2 : 0), sub: `${kpis.open_risk_pct.toFixed(2)}%` },
+            { k: "Balance", v: usd(kpis.balance, kpis.balance < 100 ? 2 : 0), sub: execution === "mt5" ? "MT5" : "paper" },
           ].map((x) => (
             <div key={x.k} className="rounded-xl border border-white/[0.06] bg-black/20 px-2.5 py-2">
               <div className="text-[10px] uppercase tracking-wider text-slate-500">{x.k}</div>

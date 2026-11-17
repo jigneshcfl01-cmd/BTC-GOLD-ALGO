@@ -96,6 +96,14 @@ export interface Mt5Health {
     margin_free: number; leverage: number; trade_mode: "DEMO" | "REAL" | "CONTEST"; trade_allowed: boolean };
 }
 
+export interface DeltaHealth {
+  connected: boolean;
+  base_url: string;
+  ping_ms: number;
+  symbols: Record<string, string>;
+  checked_at?: number;
+}
+
 export interface Mt5LogRow {
   ts: number; kind: string; symbol: string; retcode: number | null; ticket: number | null; price: number | null;
   volume: number | null; message: string; request?: string;

@@ -59,6 +59,7 @@ function ModeSwitch() {
       <div className="mt-3 space-y-3">
         <div className="flex items-center gap-3">
           <span className="w-24 text-xs text-slate-400">Market data</span>
+          <Btn on={dataSource === "delta"} label="Delta Exchange" onClick={() => setMode({ data_source: "delta" })} disabled={execution === "mt5"} />
           <Btn on={dataSource === "demo"} label="Demo (synthetic)" onClick={() => setMode({ data_source: "demo" })} disabled={execution === "mt5"} />
           <Btn on={dataSource === "mt5"} label="MT5 live data" onClick={() => setMode({ data_source: "mt5" })} disabled={!mt5?.connected} title={!mt5?.connected ? "Connect MT5 first" : ""} />
         </div>
@@ -68,6 +69,9 @@ function ModeSwitch() {
           <Btn on={execution === "mt5"} label="MT5 orders" onClick={() => setMode({ execution: "mt5" })} disabled={!ready}
             title={!ready ? "MT5 must be connected, Algo Trading enabled and the configured account logged in" : ""} />
         </div>
+        <p className="text-[11.5px] text-slate-400">
+          Delta Exchange streams live BTCUSD and XAUTUSD data directly into the seven-agent desk and Paper engine.
+        </p>
         <p className="text-[11.5px] text-slate-400">Paper is the default. MT5 orders go to a <b className="text-emerald-300">DEMO account only</b> unless Live is unlocked below.</p>
       </div>
     </Glass>

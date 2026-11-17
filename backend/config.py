@@ -54,7 +54,11 @@ class Settings:
     mt5_deviation: int = field(default_factory=lambda: _int("MT5_DEVIATION", 20))
 
     demo_cycle_seconds: float = field(default_factory=lambda: _float("DEMO_CYCLE_SECONDS", 3.0))
-    starting_balance: float = field(default_factory=lambda: _float("PAPER_STARTING_BALANCE", 10000.0))
+    starting_balance: float = field(default_factory=lambda: _float("PAPER_STARTING_BALANCE", 12.0))
+    data_source: str = field(default_factory=lambda: os.getenv("DATA_SOURCE", "delta").strip().lower())
+    delta_base_url: str = field(default_factory=lambda: os.getenv("DELTA_BASE_URL", "https://api.india.delta.exchange").strip())
+    delta_symbol_btc: str = field(default_factory=lambda: os.getenv("DELTA_SYMBOL_BTC", "BTCUSD").strip())
+    delta_symbol_gold: str = field(default_factory=lambda: os.getenv("DELTA_SYMBOL_GOLD", "XAUTUSD").strip())
     db_path: str = field(default_factory=lambda: os.getenv("DB_PATH", str(ROOT_DIR / "backend" / "quantpilot.db")))
     host: str = field(default_factory=lambda: os.getenv("API_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _int("API_PORT", 8765))

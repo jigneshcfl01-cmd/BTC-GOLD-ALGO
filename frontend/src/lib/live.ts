@@ -1,7 +1,7 @@
 import { useStore } from "../store/useStore";
 import { api } from "./api";
 import { play } from "./sound";
-import type { AgentResult, Candle, CycleSummary, Instrument, Kpis, Mt5Deal, Mt5Health, Mt5LogRow, Mt5Position, SessionInfo } from "./types";
+import type { AgentResult, Candle, CycleSummary, DeltaHealth, Instrument, Kpis, Mt5Deal, Mt5Health, Mt5LogRow, Mt5Position, SessionInfo } from "./types";
 import { SOCIAL_TOAST_KEY, safeStorage } from "../config/social";
 
 const S = () => useStore.getState();
@@ -14,6 +14,7 @@ export async function loadState(): Promise<void> {
     banner: (d.banner as string) ?? null, analystMode: d.analyst_mode as string, model: d.model as string,
     kpis: d.kpis as Kpis, positions: d.positions as never[], equity: d.equity_curve as never[],
     session: d.session as SessionInfo, rules: d.rules as never, params: d.params as never,
+    delta: (d.delta as DeltaHealth) ?? null,
     mt5: d.mt5 as Mt5Health, confirmPhrase: d.confirm_phrase as string, mt5ModeEnv: d.mt5_mode_env as string,
     lastCycle: d.last_cycle as never,
     mt5Positions: ((d.mt5_sync as { positions: Mt5Position[] })?.positions ?? []),
@@ -79,6 +80,9 @@ function handle(msg: Msg): void {
       break;
     case "mt5_status":
       s.set({ mt5: d as Mt5Health, mode: d.mode });
+      break;
+    case "delta_status":
+      s.set({ delta: d as DeltaHealth });
       break;
     case "mt5_sync":
       s.set({ mt5Positions: d.positions, mt5Deals: d.deals });

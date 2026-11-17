@@ -16,12 +16,13 @@ log = logging.getLogger("quantpilot.paper")
 class PaperEngine:
     """Simulated broker. Fills market orders at the given price; manages exits candle by candle."""
 
-    def __init__(self, starting_balance: float) -> None:
+    def __init__(self, starting_balance: float, spec_provider: Optional[Any] = None) -> None:
         self.starting_balance = starting_balance
         self.balance = starting_balance
         self.positions: dict[str, Position] = {}
         self.closed: list[Position] = []
         self.equity_curve: list[dict] = [{"time": int(time.time()), "equity": starting_balance}]
+        self.spec_provider = spec_provider or (lambda inst: SPECS[inst])
 
     # ------------------------------------------------------------ queries
     def open_positions(self, instrument: Optional[str] = None) -> list[Position]:
@@ -33,7 +34,7 @@ class PaperEngine:
     def open_risk(self) -> float:
         total = 0.0
         for p in self.positions.values():
-            spec = SPECS[p.instrument]
+            spec = self.spec_provider(p.instrument)
             loss = (p.entry_price - p.stop_loss) if p.direction == "LONG" else (p.stop_loss - p.entry_price)
             total += max(0.0, loss) * p.volume * spec.contract_size
         return round(total, 2)
@@ -52,7 +53,8 @@ class PaperEngine:
 
     def _pnl(self, pos: Position, price: float, volume: float) -> float:
         sign = 1 if pos.direction == "LONG" else -1
-        return (price - pos.entry_price) * sign * volume * SPECS[pos.instrument].contract_size
+        spec = self.spec_provider(pos.instrument)
+        return (price - pos.entry_price) * sign * volume * spec.contract_size
 
     def _close(self, pos: Position, price: float, reason: str, ts: float) -> None:
         pnl = self._pnl(pos, price, pos.volume)
@@ -78,7 +80,7 @@ class PaperEngine:
         for pos in list(self.positions.values()):
             if pos.instrument != instrument:
                 continue
-            spec = SPECS[instrument]
+            spec = self.spec_provider(instrument)
             long_ = pos.direction == "LONG"
             r = abs(pos.entry_price - pos.initial_stop)
             adverse = lo if long_ else hi

@@ -15,6 +15,7 @@ from ..agents.base import CycleContext
 from ..agents.chronicler import build_daily_review
 from ..config import INSTRUMENTS, Settings
 from .db import Database
+from .delta_client import DeltaClient
 from .demo_data import DemoFeed
 from .events import EventHub
 from .indicators import session_for, session_info
@@ -50,9 +51,10 @@ class Services:
         self.rules = RiskRules(**(self.db.kv_get("rules", {}) or {}))
         self.params = StrategyParams(**(self.db.kv_get("params", {}) or {}))
         self.guardian_state = GuardianState()
-        self.state = RuntimeState()
+        self.state = RuntimeState(data_source=settings.data_source if not settings.demo_mode else "demo")
+        self.delta = DeltaClient(base_url=settings.delta_base_url, symbol_map={"BTCUSD": settings.delta_symbol_btc, "XAUUSD": settings.delta_symbol_gold})
         self.feed = DemoFeed(INSTRUMENTS)
-        self.paper = PaperEngine(settings.starting_balance)
+        self.paper = PaperEngine(settings.starting_balance, spec_provider=lambda inst: self.delta.spec(inst) if self.state.data_source == "delta" else SPECS[inst])
         self.mt5 = MT5Bridge(self.db, login=settings.mt5_login, password=settings.mt5_password, server=settings.mt5_server,
                              path=settings.mt5_path, magic=settings.mt5_magic, deviation=settings.mt5_deviation,
                              mt5_module=mt5_module, allow_live_env=settings.mt5_mode == "live",
@@ -89,6 +91,11 @@ class Services:
         return len(self.paper.positions)
 
     def last_price(self, instrument: str) -> float:
+        if self.state.data_source == "delta":
+            snap = self.delta.symbol_snapshot(instrument)
+            if snap.get("price"):
+                self.last_prices[instrument] = snap["price"]
+                return snap["price"]
         if self.state.data_source == "demo":
             return self.feed.last_price(instrument)
         return self.last_prices.get(instrument) or self.feed.last_price(instrument)
@@ -109,6 +116,8 @@ class Services:
     def mode_label(self) -> str:
         if self.state.execution == "mt5":
             return "MT5 DEMO" if self.mt5.account_mode() == "DEMO" else "MT5 LIVE"
+        if self.state.data_source == "delta":
+            return "DELTA (PAPER)"
         return "PAPER" if self.state.data_source == "mt5" else "DEMO"
 
     def kpis(self) -> dict:
@@ -142,7 +151,14 @@ class Orchestrator:
     # ---------------------------------------------------------------- lifecycle
     async def start(self) -> None:
         svc = self.svc
-        if svc.mt5.available:
+        if svc.state.data_source == "delta":
+            dh = await asyncio.to_thread(svc.delta.health)
+            if dh.get("connected"):
+                log.info("Delta Exchange connected · %s (%s ms)", dh["base_url"], dh["ping_ms"])
+            else:
+                svc.state.banner = "Delta Exchange API reachable check failed: falling back to Demo data."
+                svc.state.data_source = "demo"
+        elif svc.mt5.available:
             ok = await asyncio.to_thread(svc.mt5.connect)
             health = await asyncio.to_thread(svc.mt5.health)
             if ok and not svc.settings.demo_mode and health.get("connected"):
@@ -155,6 +171,7 @@ class Orchestrator:
             svc.mt5.health()
         self._reset_day(force=True)
         self._tasks = [asyncio.create_task(self._cycle_loop(), name="cycle"),
+                       asyncio.create_task(self._delta_health_loop(), name="delta-health"),
                        asyncio.create_task(self._mt5_health_loop(), name="mt5-health"),
                        asyncio.create_task(self._mt5_sync_loop(), name="mt5-sync")]
         log.info("Orchestrator started (data=%s exec=%s analyst=%s)", svc.state.data_source, svc.state.execution, svc.analyst.mode)
@@ -162,6 +179,7 @@ class Orchestrator:
     async def stop(self) -> None:
         for t in self._tasks:
             t.cancel()
+        await asyncio.to_thread(self.svc.delta.close)
         await asyncio.to_thread(self.svc.mt5.shutdown)
 
     # ---------------------------------------------------------------- day handling
@@ -258,6 +276,9 @@ class Orchestrator:
                         await asyncio.to_thread(self.run_pipeline, inst, 0.35)
                     svc.state.cycles += 1
                     await asyncio.sleep(0.9 if scenario else svc.settings.demo_cycle_seconds)
+                elif svc.state.data_source == "delta":
+                    await self._delta_cycle()
+                    await asyncio.sleep(2.5)
                 else:
                     await self._mt5_cycle()
                     await asyncio.sleep(2.0)
@@ -267,6 +288,56 @@ class Orchestrator:
                 log.exception("cycle loop error")
                 svc.toast("error", "Cycle error", "An internal error occurred; the desk will retry automatically.")
                 await asyncio.sleep(3)
+
+    async def _delta_cycle(self) -> None:
+        svc = self.svc
+        if not svc.delta.connected:
+            h = await asyncio.to_thread(svc.delta.health)
+            if not h.get("connected"):
+                svc.state.banner = "Delta Exchange unreachable: falling back to Demo."
+                svc.state.data_source = "demo"
+                return
+        new: dict[str, dict] = {}
+        for inst in INSTRUMENTS:
+            bars = await asyncio.to_thread(svc.delta.rates, inst, "M5", 3)
+            if not bars:
+                continue
+            last = bars[-1]
+            if last["time"] > svc.state.last_seen_bar.get(inst, 0):
+                svc.state.last_seen_bar[inst] = last["time"]
+                new[inst] = last
+        self._reset_day()
+        for inst, candle in new.items():
+            if svc.state.execution == "paper":
+                self._handle_paper_events(inst, svc.paper.on_candle(inst, candle))
+        if new:
+            self.broadcast_market(new)
+            for inst in new:
+                await asyncio.to_thread(self.run_pipeline, inst, 0.0)
+            svc.state.cycles += 1
+        else:
+            live: dict[str, dict] = {}
+            for inst in INSTRUMENTS:
+                snap = await asyncio.to_thread(svc.delta.symbol_snapshot, inst)
+                p = snap.get("price")
+                if p:
+                    svc.last_prices[inst] = p
+                    live[inst] = {"time": int(time.time()), "open": p, "high": p, "low": p, "close": p, "volume": 0}
+            if live:
+                self.broadcast_market(live)
+
+    async def _delta_health_loop(self) -> None:
+        svc = self.svc
+        while True:
+            try:
+                if svc.state.data_source == "delta":
+                    h = await asyncio.to_thread(svc.delta.health)
+                    svc.hub.emit("delta_status", h)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("delta health loop error")
+            await asyncio.sleep(15)
 
     async def _mt5_cycle(self) -> None:
         svc = self.svc

@@ -73,6 +73,7 @@ async def health() -> dict:
     s = svc()
     return {"ok": True, "mode": s.mode_label(), "data_source": s.state.data_source, "execution": s.state.execution,
             "analyst": s.analyst.mode, "cycles": s.state.cycles, "ws_clients": len(hub.clients), "events_sent": hub.sent,
+            "delta_connected": s.delta.connected, "delta_base_url": s.delta.base_url,
             "mt5_available": s.mt5.available, "mt5_connected": s.mt5.connected, "time": datetime.now(timezone.utc).isoformat()}
 
 
@@ -87,6 +88,7 @@ async def state() -> dict:
         "last_cycle": s.state.last_cycle,
         "session": session_info(datetime.fromtimestamp(s.clock(), tz=timezone.utc)),
         "rules": s.rules.to_dict(), "params": s.params.to_dict(),
+        "delta": s.delta.last_health,
         "mt5": s.mt5.last_health, "mt5_sync": s.state.mt5_sync, "confirm_phrase": CONFIRM_PHRASE,
         "kill_switch": s.guardian_state.kill_switch, "mt5_mode_env": settings.mt5_mode,
     }
@@ -100,6 +102,8 @@ async def candles(instrument: str = "XAUUSD", n: int = 400) -> dict:
     n = max(50, min(n, 2000))
     if s.state.data_source == "mt5" and s.mt5.connected:
         data = await asyncio.to_thread(s.mt5.rates, instrument, "M5", n)
+    elif s.state.data_source == "delta" and s.delta.connected:
+        data = await asyncio.to_thread(s.delta.rates, instrument, "M5", n)
     else:
         data = s.feed.candles(instrument, n)
     return {"ok": True, "instrument": instrument, "candles": data, "last_cycle": s.state.last_cycle.get(instrument)}
@@ -109,6 +113,11 @@ async def candles(instrument: str = "XAUUSD", n: int = 400) -> dict:
 async def journal(limit: int = 150, outcome: Optional[str] = None) -> dict:
     s = svc()
     return {"decisions": s.db.decisions(limit, outcome), "trades": s.db.trades(200), "reviews": s.db.reviews()}
+
+
+@app.get("/api/delta/status")
+async def delta_status() -> dict:
+    return await asyncio.to_thread(svc().delta.health)
 
 
 @app.get("/api/mt5/log")
@@ -137,9 +146,16 @@ async def set_mode(body: ModeBody) -> dict:
         if s.state.execution == "mt5":
             return {"ok": False, "message": "MT5 execution needs MT5 data. Switch execution to Paper first."}
         s.state.data_source = "demo"
+    elif body.data_source == "delta":
+        if s.state.execution == "mt5":
+            return {"ok": False, "message": "MT5 execution needs MT5 data. Switch execution to Paper first."}
+        h = await asyncio.to_thread(s.delta.health)
+        if not h.get("connected"):
+            return {"ok": False, "message": f"Delta Exchange unreachable at {s.delta.base_url}."}
+        s.state.data_source = "delta"
     elif body.data_source == "mt5":
         if not s.mt5.connected:
-            return {"ok": False, "message": "MT5 is not connected: staying on Demo data."}
+            return {"ok": False, "message": "MT5 is not connected: staying on current data."}
         s.state.data_source = "mt5"
     s.state.banner = None
     s.state.last_seen_bar.clear()
